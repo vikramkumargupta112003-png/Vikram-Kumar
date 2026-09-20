@@ -60,17 +60,36 @@ export const TrackOrderView: React.FC<TrackOrderViewProps> = ({
       const res = await fetch(
         `/api/orders/track?orderId=${encodeURIComponent(searchId.trim())}&mobile=${encodeURIComponent(searchMobile.trim())}`
       );
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Order could not be found. Please check details.');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.order) {
+          setOrder(data.order);
+          setLoading(false);
+          return;
+        }
       }
-      setOrder(data.order);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to track order');
-      setOrder(null);
-    } finally {
-      setLoading(false);
+      console.warn('API tracking fallback triggered:', err);
     }
+
+    // Check local backup store (for static Netlify or offline mode)
+    try {
+      const localOrders = JSON.parse(localStorage.getItem('ve_local_orders') || '[]');
+      const found = localOrders.find(
+        (o: any) =>
+          o.orderId?.toLowerCase() === searchId.trim().toLowerCase() &&
+          o.customer?.mobile?.trim() === searchMobile.trim()
+      );
+      if (found) {
+        setOrder(found);
+        setLoading(false);
+        return;
+      }
+    } catch (e) {}
+
+    setErrorMessage('Order could not be found. Please verify your Order ID and Mobile number.');
+    setOrder(null);
+    setLoading(false);
   };
 
   useEffect(() => {

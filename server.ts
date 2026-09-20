@@ -11,16 +11,52 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Enable CORS for Netlify previews and external integrations
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Normalize Netlify function rewrite paths
+app.use((req, res, next) => {
+  if (req.url.startsWith('/.netlify/functions/api')) {
+    req.url = req.url.replace('/.netlify/functions/api', '/api');
+  } else if (
+    !req.url.startsWith('/api') &&
+    (req.url.startsWith('/inventory') ||
+      req.url.startsWith('/orders') ||
+      req.url.startsWith('/razorpay') ||
+      req.url.startsWith('/payment') ||
+      req.url.startsWith('/admin'))
+  ) {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
+
 // Server configuration & secrets
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const PAYMENT_GATEWAY_SECRET = process.env.PAYMENT_GATEWAY_SECRET || 've_online_secret_key_prod_8829';
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || '';
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || '';
 
-// Ensure data directory exists
-const DATA_DIR = path.join(process.cwd(), 'data');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Ensure data directory exists (handles serverless read-only filesystem via /tmp)
+const IS_SERVERLESS = Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const DATA_DIR = IS_SERVERLESS
+  ? path.join('/tmp', 'data')
+  : path.join(process.cwd(), 'data');
+
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn('Notice: DATA_DIR creation handled in-memory', e);
 }
 
 const ORDERS_FILE = path.join(DATA_DIR, 'orders.json');
@@ -689,4 +725,10 @@ async function startServer() {
   });
 }
 
-startServer();
+// Only start standalone HTTP server if not running inside Netlify Functions or AWS Lambda
+if (!process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  startServer();
+}
+
+export { app };
+export default app;
